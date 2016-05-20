@@ -5,7 +5,8 @@ import sys
 # To use a consistent encoding
 from codecs import open
 from os import path
-from ConfigParser import ConfigParser, NoOptionError
+
+from six.moves.configparser import ConfigParser, NoOptionError
 
 from setuptools import setup, find_packages
 from setuptools.command.test import test as TestCommand
@@ -84,8 +85,9 @@ setup_args = {
     #     'hello': ['*.msg'],
     # },
 
-    'setup_requires': ["astropy>=1.0", "transforms3d"],
-    'install_requires': [],
+    'setup_requires': ["setuptools", "six", "astropy>=1.0", "transforms3d", "sphinx"],
+    'install_requires': ["six", "sphinx"],
+    'requires': ["six", 'sphinx'],
     'tests_require': ['pytest'],
     'zip_safe': False,
     }
