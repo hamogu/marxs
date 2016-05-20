@@ -1,5 +1,5 @@
 from os import path
-from ConfigParser import ConfigParser
+from six.moves.configparser import ConfigParser
 from cffi import FFI
 
 with open ("marxs/optics/cdef.txt", "r") as myfile:
@@ -16,7 +16,7 @@ marxlib = conf.get('MARX', 'libdir')
 
 sources = [('pfile', 'src', 'pfile.c'), ('marx', 'libsrc', 'mirror.c')]
 headers = [('pfile', 'src'), ('jdmath', 'src') , ('jdfits', 'src'),
-           ('marx', 'src',), ('marx', 'libsrc',)]
+           ('marx', 'libsrc'), ('marx', 'src'), ('src',), ('libsrc',)]
 
 ffi.set_source("_marx",
 '''
