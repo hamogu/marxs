@@ -357,7 +357,7 @@ class StructureOnRowlandTorus(Parallel, OpticalElement):
     '''Base class for any set of optical elements arranged on a Rowland torus.
 
     When a `StructureOnRowlandTorus` is initialized, it places a number of elements on the
-    Rowland torus.
+    Rowland torus using the method `specific_calculate_elempos` (see there for details).
 
     After generation, individual positions can be adjusted by hand by
     editing the attributes `elem_pos` or `elem_uncertainty`. See `Parallel` for details.
@@ -535,8 +535,10 @@ class GratingArrayStructure(LinearCCDArray):
     '''A collection of diffraction gratings on the Rowland torus.
 
     When a ``GratingArrayStructure`` (GAS) is initialized, it places
-    elements in the space available on the Rowland circle, most
-    commonly, this class is used to place grating facets.
+    elements on the Rowland torus. Elements are set on circles with constant
+    radius. This design is useful for a stacked Wolter- Type I mirror as
+    used in Chandra, where one ring of facets is placed under each mirror.
+    Other layouts may be more efficient for mirrors that fill a space.
 
     After generation, individual facet positions can be adjusted by hand by
     editing the attributes `elem_pos` or `elem_uncertainty`. See `Parallel` for details.
@@ -650,4 +652,97 @@ class GratingArrayStructure(LinearCCDArray):
                         raise e
 
                 e_y.append(np.array([0., 1., 0.]))
+        return xyz, e_y
+
+class RectangularGAS(StructureOnRowlandTorus):
+    '''A 1D collection of element (e.g. CCDs) arranged on a Rowland circle.
+
+    When a `LinearCCDArray` is initialized, it places a number of elements on the
+    Rowland circle. These elements could be any optical element, but the most
+    common use for this structure is an array of CCDs capturing a spread-out
+    grating spectrum like ACIS-S in Chandra.
+
+    After generation, individual positions can be adjusted by hand by
+    editing the attributes `elem_pos` or `elem_uncertainty`. See `Parallel` for details.
+
+    After any of the `elem_pos`, `elem_uncertainty` or
+    `uncertainty` is changed, `generate_elements` needs to be
+    called to regenerate the final CCD positions..
+
+    Parameters
+    ----------
+    rowland : RowlandTorus
+    d_element : float
+        Size of the edge of each element, which is assumed to be flat and square.
+        (``d_element`` can be larger than the actual size of the optical element to
+        accommodate a minimum distance between elements from mounting structures.
+    x_range: list of 2 floats
+        Minimum and maximum of the x coordinate that is searched for an intersection
+        with the torus. A line can intersect a torus in up to four points. ``x_range``
+        specififes the range for the numerical search for the intersection point.
+    '''
+
+    tangent_to_torus = False
+    '''If ``True`` the default orientation (before applying blaze, uncertainties etc.) of elements is
+    such that they are tangents to the torus in the center of the element.
+    If ``False`` they are perpendicular to perfectly focussed rays.
+    '''
+
+
+
+    id_col = 'facet'
+
+    def __init__(self, **kwargs):
+        self.radius = kwargs.pop('radius')
+        self.phi = kwargs.pop('phi')
+        super(RectangularGAS, self).__init__(**kwargs)
+
+    def max_elements_on_radius(self):
+        '''Distribute elements on a radius.
+
+        Returns
+        -------
+        n : int
+            Number of elements needed to cover a given radius segment.
+            Elements might reach beyond the radius limits if the difference between
+            inner and outer radius is not an integer multiple of the element size.
+        '''
+        return int(np.ceil((self.radius[1] - self.radius[0]) / self.d_element))
+
+    def distribute_elements_on_radius(self):
+        '''Distributes elements as evenly as possible along a radius.
+
+        .. note::
+           Unlike `distribute_elements_on_arc`, this function will have elements reaching
+           beyond the limits of the radius, if the distance between inner and outer radius
+           is not an integer multiple of the element size.
+
+        Returns
+        -------
+        radii : np.ndarray
+            Radii of the element *center* positions.
+        '''
+        n = self.max_elements_on_radius()
+        return np.mean(self.radius) + np.arange(- n / 2 + 0.5, n / 2 + 0.5) * self.d_element
+
+
+    def specific_calculate_elempos(self):
+        xyz = []
+        e_y = []
+        radii = self.distribute_elements_on_radius()
+        # Line along which the detectors are placed
+        xyz_from_ra = self.rowland.xyz_from_radiusangle
+        try:
+            line = normalized_vector(xyz_from_ra(radii[1], self.phi, self.x_range)
+                                     - xyz_from_ra(radii[0], self.phi, self.x_range))
+            for r in radii:
+                xyz.append(xyz_from_ra(r, self.phi, self.x_range).flatten())
+                e_y.append(line)
+
+        except ValueError as e:
+            if 'f(a) and f(b) must have different signs' in str(e):
+                raise ElementPlacementError('No intersection with Rowland torus in range {0}'.format(self.x_range))
+            else:
+                # Something else went wrong
+                raise e
         return xyz, e_y

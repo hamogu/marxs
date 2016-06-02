@@ -10,7 +10,7 @@ from .. import (RectangleAperture, ThinLens, FlatDetector,
 from ..aperture import BaseAperture
 from ...source import PointSource, FixedPointing
 from ..base import _parse_position_keywords, FlatStack
-from ...design import RowlandTorus, GratingArrayStructure
+from ...design import RowlandTorus, GratingArrayStructure, LinearCCDArray
 from ..baffle import Baffle
 from ..multiLayerMirror import MultiLayerMirror
 from ...simulator import Sequence
@@ -33,6 +33,12 @@ all_oe = [ThinLens(focallength=100),
                                 elem_args={'zoom':0.05, 'd':0.002,
                                            'order_selector': constant_order_factory(1)
                                            }),
+          LinearCCDArray(rowland=mytorus, d_element=0.1, x_range=[0.5, 1.],
+                         radius=[0,.5], phi=0,
+                         elem_class=FlatGrating,
+                         elem_args={'zoom':0.05, 'd':0.002,
+                                    'order_selector': constant_order_factory(1)
+                                }),
           Baffle(),
           MultiLayerMirror('./marxs/optics/data/testFile_mirror.txt', './marxs/optics/data/ALSpolarization2.txt'),
           Sequence(elements=[]),
