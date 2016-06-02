@@ -191,7 +191,11 @@ def test_GratingArrayStructure():
     can be taken as known-good to prevent regressions later.
     '''
     myrowland = RowlandTorus(10000., 10000.)
-    gas = GratingArrayStructure(myrowland, 30., [10000., 20000.], [300., 600.], phi=[-0.2*np.pi, 0.2*np.pi], elem_class=mock_facet)
+    gas = GratingArrayStructure(rowland=myrowland, d_element=30.,
+                                x_range=[10000., 20000.],
+                                radius=[300., 600.],
+                                phi=[-0.2*np.pi, 0.2*np.pi],
+                                elem_class=mock_facet)
     assert gas.max_elements_on_arc(300.) == 12
     angles = gas.distribute_elements_on_arc(315.) % (2. * np.pi)
     # This is a wrap-around case. Hard to test in general, but here I know the numbers
@@ -220,7 +224,10 @@ def test_GratingArrayStructure_2pi():
     '''test that delta_phi = 2 pi means "full circle" and not 0
     '''
     myrowland = RowlandTorus(10000., 10000.)
-    gas = GratingArrayStructure(myrowland, 30., [10000., 20000.], [300., 600.], phi=[0, 2*np.pi], elem_class=mock_facet)
+    gas = GratingArrayStructure(rowland=myrowland, d_element=30.,
+                                x_range=[10000., 20000.],
+                                radius=[300., 600.], phi=[0, 2*np.pi],
+                                elem_class=mock_facet)
     assert gas.max_elements_on_arc(300.) > 10
     n = len(gas.elem_pos)
     yz = np.empty((n, 2))
@@ -233,7 +240,9 @@ def test_GratingArrayStructure_2pi():
 def test_GAS_facets_on_radius():
     '''test distribution of elements on radius for d_r is non-integer multiple of d_element.'''
     myrowland = RowlandTorus(1000., 1000.)
-    gas = GratingArrayStructure(myrowland, 60., [1000., 2000.], [300., 400.], elem_class=mock_facet)
+    gas = GratingArrayStructure(rowland=myrowland, d_element=60.,
+                                x_range=[1000., 2000.],
+                                radius=[300., 400.], elem_class=mock_facet)
     assert np.all(gas.distribute_elements_on_radius() == [320., 380.])
     gas.radius = [300., 340.]
     assert gas.distribute_elements_on_radius() == [320.]
@@ -242,9 +251,15 @@ def test_facet_rotation_via_facetargs():
     '''The numbers for the blaze are not realistic.'''
     gratingeff = uniform_efficiency_factory()
     mytorus = RowlandTorus(9e3/2, 9e3/2)
-    mygas = GratingArrayStructure(mytorus, d_element=60., x_range=[5e3,1e4], radius=[538., 550.], elem_class=FlatGrating, elem_args={'zoom': 30, 'd':0.0002, 'order_selector': gratingeff})
+    mygas = GratingArrayStructure(rowland=mytorus, d_element=60.,
+                                  x_range=[5e3,1e4], radius=[538., 550.],
+                                  elem_class=FlatGrating,
+                                  elem_args={'zoom': 30, 'd':0.0002, 'order_selector': gratingeff})
     blaze = transforms3d.axangles.axangle2mat(np.array([0,1,0]), np.deg2rad(15.))
-    mygascat = GratingArrayStructure(mytorus, d_element=60., x_range=[5e3,1e4], radius=[538., 550.], elem_class=FlatGrating, elem_args={'zoom': 30, 'orientation': blaze, 'd':0.0002, 'order_selector': gratingeff})
+    mygascat = GratingArrayStructure(rowland=mytorus, d_element=60.,
+                                     x_range=[5e3,1e4], radius=[538., 550.],
+                                     elem_class=FlatGrating,
+                                     elem_args={'zoom': 30, 'orientation': blaze, 'd':0.0002, 'order_selector': gratingeff})
     assert np.allclose(np.rad2deg(np.arccos(np.dot(mygas.elements[0].geometry['e_x'][:3], mygascat.elements[0].geometry['e_x'][:3]))), 15.)
 
 def test_persistent_facetargs():
@@ -257,7 +272,9 @@ def test_persistent_facetargs():
     # id_col is automatically added in GAS is not present here.
     # So, pass in an id_col to make sure the comparison below will still work.
     facet_args = {'zoom': 30, 'd':0.0002, 'order_selector': gratingeff, 'id_col': 'facet'}
-    mygas = GratingArrayStructure(mytorus, d_element=60., x_range=[5e4,1e5], radius=[5380., 5500.], elem_class=FlatGrating, elem_args=facet_args)
+    mygas = GratingArrayStructure(rowland=mytorus, d_element=60.,
+                                  x_range=[5e4,1e5], radius=[5380., 5500.],
+                                  elem_class=FlatGrating, elem_args=facet_args)
     assert mygas.elem_args == facet_args
 
 def test_run_photons_through_gas():
@@ -294,7 +311,9 @@ def test_run_photons_through_gas():
             f = 'uuu'
             kwargs = {'id_col': 'yyy'}
 
-        mygas = GratingArrayStructure(mytorus, d_element=60., x_range=[5e3,1e4], radius=[538., 550.], elem_class=FlatGrating, elem_args=facet_args, **kwargs)
+        mygas = GratingArrayStructure(rowland=mytorus, d_element=60.,
+                                      x_range=[5e3,1e4], radius=[538., 550.],
+                                      elem_class=FlatGrating, elem_args=facet_args, **kwargs)
 
         p = mygas(photons.copy())
         indorder = np.isfinite(p['order'])
@@ -310,7 +329,7 @@ def test_LinearCCDArray():
     '''Test an array in default position'''
     myrowland = RowlandTorus(10000., 10000.)
     # Along the way we normally would orient the detector.
-    ccds = LinearCCDArray(myrowland, d_element=30., x_range=[0., 2000.],
+    ccds = LinearCCDArray(rowland=myrowland, d_element=30., x_range=[0., 2000.],
                           radius=[-100., 100.], phi=0., elem_class=mock_facet)
     assert len(ccds.elements) == 7
     for e in ccds.elements:
@@ -331,7 +350,7 @@ def test_LinearCCDArray_rotatated():
     pos4d = transforms3d.axangles.axangle2aff([1, 0, 0], np.deg2rad(-30))
     myrowland = RowlandTorus(10000., 10000., pos4d=pos4d)
     # Along the way we normally would orient the detector.
-    ccds = LinearCCDArray(myrowland, d_element=30., x_range=[0., 2000.],
+    ccds = LinearCCDArray(rowland=myrowland, d_element=30., x_range=[0., 2000.],
                           radius=[-100., 100.], phi=0., elem_class=mock_facet)
     assert len(ccds.elements) == 7
     for e in ccds.elements:
@@ -344,6 +363,6 @@ def test_impossible_LinearCCDArray():
     pos4d = transforms3d.axangles.axangle2aff([1, 0, 0], np.deg2rad(-30))
     myrowland = RowlandTorus(10000., 10000., pos4d=pos4d)
     with pytest.raises(ElementPlacementError) as e:
-        ccds = LinearCCDArray(myrowland, d_element=30., x_range=[0., 2000.],
+        ccds = LinearCCDArray(rowland=myrowland, d_element=30., x_range=[0., 2000.],
                               radius=[-100., 100.], phi=np.deg2rad(30.), elem_class=mock_facet)
     assert 'No intersection with Rowland' in str(e)

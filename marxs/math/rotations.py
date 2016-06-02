@@ -37,9 +37,9 @@ def ex2vec_fix(e1, efix):
     if np.allclose(e1, efix) or np.allclose(e1, -efix):
         raise ValueError('Input vectors are parallel - Rotation matrix is ambiguous.')
     rot = np.empty((3, 3))
-    rot[:, 0] = e1
-    rot[:, 1] = normalized_vector(efix - np.dot(efix, e1) * e1)
-    rot[:, 2] = np.cross(rot[:, 0], rot[:, 1])
+    rot[0, :] = e1
+    rot[1, :] = normalized_vector(efix - np.dot(efix, e1) * e1)
+    rot[2, :] = np.cross(rot[0, :], rot[1, :])
     return rot
 
 

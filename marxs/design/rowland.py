@@ -6,6 +6,7 @@ import numpy as np
 from scipy import optimize
 import transforms3d
 from transforms3d.utils import normalized_vector
+from transforms3d.affines import decompose44
 
 from ..optics.base import OpticalElement
 from ..base import _parse_position_keywords, MarxsElement
@@ -352,7 +353,83 @@ class ElementPlacementError(Exception):
     pass
 
 
-class LinearCCDArray(Parallel, OpticalElement):
+class StructureOnRowlandTorus(Parallel, OpticalElement):
+    '''Base class for any set of optical elements arranged on a Rowland torus.
+
+    When a `StructureOnRowlandTorus` is initialized, it places a number of elements on the
+    Rowland torus.
+
+    After generation, individual positions can be adjusted by hand by
+    editing the attributes `elem_pos` or `elem_uncertainty`. See `Parallel` for details.
+
+    After any of the `elem_pos`, `elem_uncertainty` or
+    `uncertainty` is changed, `generate_elements` needs to be
+    called to regenerate the final CCD positions.
+
+    Parameters
+    ----------
+    rowland : RowlandTorus
+    d_element : float
+        Size of the edge of each element, which is assumed to be flat and square.
+        (``d_element`` can be larger than the actual size of the optical element to
+        accommodate a minimum distance between elements from mounting structures.
+    x_range: list of 2 floats
+        Minimum and maximum of the x coordinate that is searched for an intersection
+        with the torus. A line can intersect a torus in up to four points. ``x_range``
+        specififes the range for the numerical search for the intersection point.
+    '''
+
+    tangent_to_torus = True
+    '''If ``True`` the default orientation (before applying blaze, uncertainties etc.) of facets is
+    such that they are tangents to the torus in the center of the facet.
+    If ``False`` they are perpendicular to perfectly focussed rays.
+    '''
+
+    def __init__(self, **kwargs):
+        self.rowland = kwargs.pop('rowland')
+        self.x_range = kwargs.pop('x_range')
+        self.d_element = kwargs.pop('d_element')
+
+        super(StructureOnRowlandTorus, self).__init__(**kwargs)
+
+    def specific_calculate_elempos(self):
+        '''Calculate ideal element positions based on rowland geometry.
+
+        Returns
+        -------
+        xyz : list of arrays
+            List of 3-d positions for the elements
+        e_y : list of arrays
+            List of 3-d vectors that set the e_y for each element
+        '''
+        raise NotImplementedError
+
+    def calculate_elempos(self):
+        '''Calculate ideal element positions based on rowland geometry.
+
+        Returns
+        -------
+        pos4d : list of arrays
+            List of affine transformations that bring an optical element centered
+            on the origin of the coordinate system with the active plane in the
+            yz-plane to the required facet position on the Rowland torus.
+        '''
+        pos4d = []
+
+        for element_pos, e_y in zip(*self.specific_calculate_elempos()):
+            if self.tangent_to_torus:
+                element_normal = self.rowland.normal(element_pos)
+            else:
+                t, r, z, s = decompose44(self.rowland.pos4d)
+                element_normal = element_pos - t
+
+            rot_mat = ex2vec_fix(element_normal, e_y)
+            pos4d.append(transforms3d.affines.compose(element_pos, rot_mat, np.ones(3)))
+
+        return pos4d
+
+
+class LinearCCDArray(StructureOnRowlandTorus):
     '''A 1D collection of element (e.g. CCDs) arranged on a Rowland circle.
 
     When a `LinearCCDArray` is initialized, it places a number of elements on the
@@ -389,25 +466,17 @@ class LinearCCDArray(Parallel, OpticalElement):
         is on the positive y axis. Angles are given in radian.
     '''
 
-    tangent_to_torus = True
-    '''If ``True`` the default orientation (before applying blaze, uncertainties etc.) of facets is
-    such that they are tangents to the torus in the center of the facet.
-    If ``False`` they are perpendicular to perfectly focussed rays.
-    '''
 
     id_col = 'CCD_ID'
 
-    def __init__(self, rowland, d_element, x_range, radius, phi, **kwargs):
-        self.rowland = rowland
-        if not (radius[1] > radius[0]):
+    def __init__(self, **kwargs):
+        self.radius = kwargs.pop('radius')
+        if not (self.radius[1] > self.radius[0]):
             raise ValueError('Outer radius must be larger than inner radius.')
-        self.radius = radius
 
-        if np.max(np.abs(phi)) > 10:
+        self.phi = kwargs.pop('phi')
+        if np.max(np.abs(self.phi)) > 10:
             raise ValueError('Input angles >> 2 pi. Did you use degrees (radian expected)?')
-        self.phi = phi
-        self.x_range = x_range
-        self.d_element = d_element
 
         super(LinearCCDArray, self).__init__(**kwargs)
 
@@ -440,41 +509,26 @@ class LinearCCDArray(Parallel, OpticalElement):
         return np.mean(self.radius) + np.arange(- n / 2 + 0.5, n / 2 + 0.5) * self.d_element
 
 
-    def calculate_elempos(self):
-        '''Calculate ideal element positions based on rowland geometry.
-
-        Returns
-        -------
-        pos4d : list of arrays
-            List of affine transformations that bring an optical element centered
-            on the origin of the coordinate system with the active plane in the
-            yz-plane to the required facet position on the Rowland torus.
-        '''
-        pos4d = []
+    def specific_calculate_elempos(self):
+        xyz = []
+        e_y = []
         radii = self.distribute_elements_on_radius()
         # Line along which the detectors are placed
+        xyz_from_ra = self.rowland.xyz_from_radiusangle
         try:
-            line = normalized_vector(self.rowland.xyz_from_radiusangle(radii[1], self.phi, self.x_range) - self.rowland.xyz_from_radiusangle(radii[0], self.phi, self.x_range))
+            line = normalized_vector(xyz_from_ra(radii[1], self.phi, self.x_range)
+                                     - xyz_from_ra(radii[0], self.phi, self.x_range))
             for r in radii:
-                facet_pos = self.rowland.xyz_from_radiusangle(r, self.phi, self.x_range).flatten()
-                if self.tangent_to_torus:
-                    facet_normal = self.rowland.normal(facet_pos)
-                else:
-                    facet_normal = facet_pos
-                # rotate such that one edge is parallel to the line
-                rot_mat = np.zeros((3,3))
-                rot_mat[0, :] = facet_normal
-                # Get the part of line that's orthogonal to facet_normal
-                rot_mat[1, :] = line - rot_mat[0, :] * np.dot(rot_mat[0, :], line)
-                rot_mat[2, :] = normalized_vector(np.cross(rot_mat[0, :], rot_mat[1, :]))
-                pos4d.append(transforms3d.affines.compose(facet_pos, rot_mat, np.ones(3)))
+                xyz.append(xyz_from_ra(r, self.phi, self.x_range).flatten())
+                e_y.append(line)
+
         except ValueError as e:
             if 'f(a) and f(b) must have different signs' in str(e):
                 raise ElementPlacementError('No intersection with Rowland torus in range {0}'.format(self.x_range))
             else:
                 # Something else went wrong
                 raise e
-        return pos4d
+        return xyz, e_y
 
 
 class GratingArrayStructure(LinearCCDArray):
@@ -527,11 +581,12 @@ class GratingArrayStructure(LinearCCDArray):
 
     id_col = 'facet'
 
-    def __init__(self, rowland, d_element, x_range, radius, phi=[0., 2*np.pi], **kwargs):
-        if np.min(radius) < 0:
+    def __init__(self, **kwargs):
+        if np.min(kwargs['radius']) < 0:
             raise ValueError('Radius must be positive.')
-
-        super(GratingArrayStructure, self).__init__(rowland, d_element, x_range, radius, phi, **kwargs)
+        if 'phi' not in kwargs:
+            kwargs['phi'] = [0., 2. * np.pi]
+        super(GratingArrayStructure, self).__init__(**kwargs)
 
     def calc_ideal_center(self):
         '''Position of the center of the GSA, assuming placement on the Rowland circle.'''
@@ -578,29 +633,21 @@ class GratingArrayStructure(LinearCCDArray):
         centerangles = d_between + 0.5 * element_angle + np.arange(n) * (d_between + element_angle)
         return (self.phi[0] + centerangles) % (2. * np.pi)
 
-    def calculate_elempos(self):
-        '''Calculate ideal element positions based on rowland geometry.
-
-        Returns
-        -------
-        pos4d : list of arrays
-            List of affine transformations that bring an optical element centered
-            on the origin of the coordinate system with the active plane in the
-            yz-plane to the required element position on the Rowland torus.
-        '''
-        pos4d = []
+    def specific_calculate_elempos(self):
+        xyz = []
+        e_y = []
         radii = self.distribute_elements_on_radius()
         for r in radii:
             angles = self.distribute_elements_on_arc(r)
             for a in angles:
-                element_pos = self.rowland.xyz_from_radiusangle(r, a, self.x_range).flatten()
-                if self.tangent_to_torus:
-                    element_normal = np.array(self.rowland.normal(element_pos))
-                else:
-                    element_normal = element_pos
-                # Find the rotation between [1, 0, 0] and the new normal
-                # Keep grooves (along e_y) parallel to e_y
-                rot_mat = ex2vec_fix(element_normal, np.array([0., 1., 0.]))
+                try:
+                    xyz.append(self.rowland.xyz_from_radiusangle(r, a, self.x_range).flatten())
+                except ValueError as e:
+                    if 'f(a) and f(b) must have different signs' in str(e):
+                        raise ElementPlacementError('No intersection with Rowland torus in range {0}'.format(self.x_range))
+                    else:
+                        # Something else went wrong
+                        raise e
 
-                pos4d.append(transforms3d.affines.compose(element_pos, rot_mat, np.ones(3)))
-        return pos4d
+                e_y.append(np.array([0., 1., 0.]))
+        return xyz, e_y
